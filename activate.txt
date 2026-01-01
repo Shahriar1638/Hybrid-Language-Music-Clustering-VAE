@@ -1,0 +1,5 @@
+<<<<<<< HEAD
+ml_env\Scripts\activate.bat
+=======
+nn_env\Scripts\activate.bat
+>>>>>>> 57e77b0 (Added new files after recovery)
