@@ -175,12 +175,20 @@ def load_audio_file(file_path):
 print("Audio loading function defined!")
 
 # ============================================================================
-# CELL 5: Collect All Audio Files
+# CELL 5: Load Metadata and Collect All Audio Files
 # ============================================================================
 
+# Load metadata to get correct genre names
+print("Loading metadata for genre lookup...")
+metadata_csv = pd.read_csv(METADATA_PATH)
+# Create lookup dictionary: file_id -> genre (from metadata)
+genre_lookup = dict(zip(metadata_csv['ID'].astype(str), metadata_csv['genre']))
+print(f"Loaded {len(genre_lookup)} genre entries from metadata")
+
 def collect_audio_files():
-    """Collect all audio file paths with their labels."""
+    """Collect all audio file paths with their labels from METADATA (not folder names)."""
     audio_files = []
+    skipped_files = 0
     
     # Collect Bangla songs
     print("Collecting Bangla song files...")
@@ -192,12 +200,19 @@ def collect_audio_files():
                 # Limit samples per class
                 files_in_genre = files_in_genre[:CONFIG['max_samples_per_class']]
                 for audio_file in files_in_genre:
-                    audio_files.append({
-                        'path': os.path.join(genre_path, audio_file),
-                        'language': 'bn',
-                        'genre': genre_folder,
-                        'filename': audio_file
-                    })
+                    # Extract file ID (filename without extension)
+                    file_id = os.path.splitext(audio_file)[0]
+                    # Get genre from metadata, skip if not found
+                    if file_id in genre_lookup:
+                        audio_files.append({
+                            'path': os.path.join(genre_path, audio_file),
+                            'language': 'bn',
+                            'genre': genre_lookup[file_id],  # Use metadata genre!
+                            'filename': audio_file,
+                            'file_id': file_id
+                        })
+                    else:
+                        skipped_files += 1
     
     # Collect English songs
     print("Collecting English song files...")
@@ -209,14 +224,23 @@ def collect_audio_files():
                 # Limit samples per class
                 files_in_genre = files_in_genre[:CONFIG['max_samples_per_class']]
                 for audio_file in files_in_genre:
-                    audio_files.append({
-                        'path': os.path.join(genre_path, audio_file),
-                        'language': 'en',
-                        'genre': genre_folder,
-                        'filename': audio_file
-                    })
+                    # Extract file ID (filename without extension)
+                    file_id = os.path.splitext(audio_file)[0]
+                    # Get genre from metadata, skip if not found
+                    if file_id in genre_lookup:
+                        audio_files.append({
+                            'path': os.path.join(genre_path, audio_file),
+                            'language': 'en',
+                            'genre': genre_lookup[file_id],  # Use metadata genre!
+                            'filename': audio_file,
+                            'file_id': file_id
+                        })
+                    else:
+                        skipped_files += 1
     
     print(f"Total audio files collected: {len(audio_files)}")
+    if skipped_files > 0:
+        print(f"Skipped {skipped_files} files (not found in metadata)")
     return audio_files
 
 # Collect files
