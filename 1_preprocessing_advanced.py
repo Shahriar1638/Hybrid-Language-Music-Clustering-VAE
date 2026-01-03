@@ -27,15 +27,14 @@ print("=" * 60)
 # ============================================================================
 
 CONFIG = {
-    'sample_rate': 22050,           # Standard sample rate for audio processing
-    'duration': 30,                 # Duration in seconds to load from each audio file
-    'n_mels': 256,                  # INCREASED: Number of mel bands (High Res Height)
-    'n_fft': 2048,                  # FFT window size
-    'hop_length': 512,              # Hop length for STFT
-    'n_mfcc': 60,                   # INCREASED: Number of MFCC coefficients
-    'fixed_time_steps': 1024,       # INCREASED: Time dimension (Width) - Captures ~24s
-    'max_samples_per_class': 120,   # Maximum samples per class to load (Increased slightly)
-    'lyrics_max_features': 100,     # Max TF-IDF features for lyrics
+    'sample_rate': 22050,
+    'duration': 30,
+    'n_mels': 128,                  # CHANGED: Standard height
+    'n_fft': 2048,
+    'hop_length': 512,
+    'fixed_time_steps': 1024,        # CHANGED: More manageable
+    'max_samples_per_class': 120,
+    'lyrics_max_features': 384,    # CHANGED: Sentence transformer output
 }
 
 # Define paths
@@ -121,25 +120,7 @@ def extract_mel_spectrogram(audio, sr):
     return mel_db
 
 
-def extract_mfcc(audio, sr):
-    """Extract MFCC features with fixed dimensions for CNN."""
-    mfcc = librosa.feature.mfcc(
-        y=audio, 
-        sr=sr, 
-        n_mfcc=CONFIG['n_mfcc'],
-        n_fft=CONFIG['n_fft'], 
-        hop_length=CONFIG['hop_length']
-    )
-    
-    # Resize to fixed time steps
-    if mfcc.shape[1] > CONFIG['fixed_time_steps']:
-        mfcc = mfcc[:, :CONFIG['fixed_time_steps']]
-    else:
-        # Pad with minimum value
-        pad_width = CONFIG['fixed_time_steps'] - mfcc.shape[1]
-        mfcc = np.pad(mfcc, ((0, 0), (0, pad_width)), mode='constant', constant_values=mfcc.min())
-    
-    return mfcc
+
 
 
 def extract_flattened_features(audio, sr):
@@ -154,11 +135,7 @@ def extract_flattened_features(audio, sr):
     )
     mel_db = librosa.power_to_db(mel, ref=np.max)
     
-    # Extract MFCC
-    mfcc = librosa.feature.mfcc(
-        y=audio, sr=sr, n_mfcc=20, # Keep 20 for stat features
-        n_fft=CONFIG['n_fft'], hop_length=CONFIG['hop_length']
-    )
+
     
     # Extract spectral features
     spectral_centroid = librosa.feature.spectral_centroid(y=audio, sr=sr, hop_length=CONFIG['hop_length'])
@@ -176,8 +153,7 @@ def extract_flattened_features(audio, sr):
     features = []
     features.extend(np.mean(mel_db, axis=1))
     features.extend(np.std(mel_db, axis=1))
-    features.extend(np.mean(mfcc, axis=1))
-    features.extend(np.std(mfcc, axis=1))
+
     
     for feat in [spectral_centroid, spectral_bandwidth, spectral_rolloff, zcr, rms]:
         features.append(np.mean(feat))
@@ -201,13 +177,11 @@ def process_single_file(file_info):
     try:
         # Extract features
         mel_spec = extract_mel_spectrogram(audio, sr)
-        mfcc = extract_mfcc(audio, sr)
         flat_feat = extract_flattened_features(audio, sr)
         
         return {
             'status': 'success',
             'mel_spec': mel_spec,
-            'mfcc': mfcc,
             'flat_feat': flat_feat,
             'genre': file_info['genre'],
             'lyrics': file_info['lyrics'],
@@ -331,7 +305,6 @@ results = Parallel(n_jobs=-1, verbose=5)(
 
 # Aggregate results
 mel_spectrograms = []
-mfccs = []
 flattened_features = []
 labels = []
 lyrics_list = []
@@ -341,7 +314,6 @@ failed_count = 0
 for res in results:
     if res['status'] == 'success':
         mel_spectrograms.append(res['mel_spec'])
-        mfccs.append(res['mfcc'])
         flattened_features.append(res['flat_feat'])
         labels.append(res['genre'])
         lyrics_list.append(res['lyrics'])
@@ -356,7 +328,6 @@ for res in results:
 
 # Convert to numpy arrays
 mel_spectrograms = np.array(mel_spectrograms)
-mfccs = np.array(mfccs)
 flattened_features = np.array(flattened_features)
 labels = np.array(labels)
 
@@ -400,8 +371,7 @@ print(f"\n1. Mel Spectrograms (for CNN):")
 print(f"   Shape: {mel_spectrograms.shape}")
 print(f"   Dimensions: {mel_spectrograms.shape[1]} (mel bands) x {mel_spectrograms.shape[2]} (time steps)")
 
-print(f"\n2. MFCCs (for CNN):")
-print(f"   Shape: {mfccs.shape}")
+
 
 print(f"\n3. Flattened Features (for MLP):")
 print(f"   Shape: {flattened_features.shape}")
@@ -427,12 +397,8 @@ mel_flat = mel_spectrograms.reshape(N, -1)
 mel_normalized_flat = mel_scaler.fit_transform(mel_flat)
 mel_normalized = mel_normalized_flat.reshape(N, H, W)
 
-# Normalize MFCCs
-mfcc_scaler = StandardScaler()
-N_mfcc, H_mfcc, W_mfcc = mfccs.shape
-mfcc_flat = mfccs.reshape(N_mfcc, -1)
-mfcc_normalized_flat = mfcc_scaler.fit_transform(mfcc_flat)
-mfcc_normalized = mfcc_normalized_flat.reshape(N_mfcc, H_mfcc, W_mfcc)
+mel_normalized = mel_normalized_flat.reshape(N, H, W)
+
 
 # Normalize flattened features
 from sklearn.impute import SimpleImputer
@@ -460,8 +426,7 @@ metadata_df_out['label'] = labels
 # Save 2D features for CNN
 np.save(os.path.join(OUTPUT_PATH, 'mel_spectrograms_raw.npy'), mel_spectrograms)
 np.save(os.path.join(OUTPUT_PATH, 'mel_spectrograms_normalized.npy'), mel_normalized)
-np.save(os.path.join(OUTPUT_PATH, 'mfccs_raw.npy'), mfccs)
-np.save(os.path.join(OUTPUT_PATH, 'mfccs_normalized.npy'), mfcc_normalized)
+
 
 # Save flattened features
 np.save(os.path.join(OUTPUT_PATH, 'features_raw.npy'), flattened_features)
@@ -474,7 +439,7 @@ metadata_df_out.to_csv(os.path.join(OUTPUT_PATH, 'metadata.csv'), index=False)
 
 # Save scalers
 with open(os.path.join(OUTPUT_PATH, 'mel_scaler.pkl'), 'wb') as f: pickle.dump(mel_scaler, f)
-with open(os.path.join(OUTPUT_PATH, 'mfcc_scaler.pkl'), 'wb') as f: pickle.dump(mfcc_scaler, f)
+
 with open(os.path.join(OUTPUT_PATH, 'flat_scaler.pkl'), 'wb') as f: pickle.dump(flat_scaler, f)
 with open(os.path.join(OUTPUT_PATH, 'imputer.pkl'), 'wb') as f: pickle.dump(imputer, f)
 with open(os.path.join(OUTPUT_PATH, 'tfidf_vectorizer.pkl'), 'wb') as f: pickle.dump(tfidf_vectorizer, f)

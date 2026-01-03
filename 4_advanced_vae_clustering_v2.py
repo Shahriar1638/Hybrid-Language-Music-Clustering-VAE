@@ -48,7 +48,7 @@ audio_data = np.load(os.path.join(DATA_PATH, 'mel_spectrograms_normalized.npy'))
 audio_data = audio_data[:, np.newaxis, :, :]
 
 # Load Lyrics Embeddings (Text)
-# Shape: (1766, 100)
+# Shape after advanced preprocessing: (N, 384)
 text_data = np.load(os.path.join(DATA_PATH, 'lyrics_embeddings.npy'))
 
 # Load Labels (if available, for ARI)
@@ -90,7 +90,7 @@ print(f"Validation samples: {len(val_dataset)}")
 # ============================================================================
 
 class HybridVAE(nn.Module):
-    def __init__(self, latent_dim=128, text_dim=100):
+    def __init__(self, latent_dim=128, text_dim=384):
         super(HybridVAE, self).__init__()
         self.latent_dim = latent_dim
         
@@ -115,10 +115,10 @@ class HybridVAE(nn.Module):
             nn.Conv2d(512, 512, kernel_size=3, stride=2, padding=1),# -> (512, 4, 16)
             nn.BatchNorm2d(512),
             nn.LeakyReLU(),
-            nn.Flatten() # -> 512 * 4 * 16 = 32768
+            nn.Flatten() # -> 512 * 2 * 16 = 16384 (for 128 mels)
         )
         # Audio feature projection
-        self.audio_fc = nn.Linear(32768, 1024)
+        self.audio_fc = nn.Linear(16384, 1024)
         
         # --- Text Encoder (Dense) ---
         # Input: (100)
@@ -143,10 +143,10 @@ class HybridVAE(nn.Module):
         self.decoder_split = nn.Linear(512, 1024 + 128) # Split back to audio/text hidden dims
         
         # --- Audio Decoder (Transposed CNN) ---
-        self.audio_decoder_fc = nn.Linear(1024, 32768)
+        self.audio_decoder_fc = nn.Linear(1024, 16384)
         
         self.audio_decoder = nn.Sequential(
-            nn.Unflatten(1, (512, 4, 16)),
+            nn.Unflatten(1, (512, 2, 16)),
             nn.ConvTranspose2d(512, 512, kernel_size=3, stride=2, padding=1, output_padding=1), # -> (512, 8, 32)
             nn.BatchNorm2d(512),
             nn.LeakyReLU(),
@@ -229,10 +229,10 @@ def loss_function(recon_audio, audio, recon_text, text, mu, logvar, alpha=1.0, b
     
     # Total loss with weighting
     # Alpha balances audio vs text importance. Text is much smaller dimension, likely needs boosting or good MSE balance.
-    # New Dimensions: Audio (262k), Text (100). Imbalance is huge (~2600x).
-    # Increased text weighting to 2500 to align per-feature importance roughly 1:1.
+    # Dimensions: Audio (131k), Text (384). Ratio ~340.
+    # Adjusted weighting to 350 to align per-feature importance roughly 1:1.
     
-    return recon_loss_audio + recon_loss_text * 2500 + kld * beta, recon_loss_audio, recon_loss_text, kld
+    return recon_loss_audio + recon_loss_text * 350 + kld * beta, recon_loss_audio, recon_loss_text, kld
 
 print("Hybrid VAE model defined.")
 
