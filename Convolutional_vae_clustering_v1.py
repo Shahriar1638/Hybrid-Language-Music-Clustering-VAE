@@ -48,7 +48,7 @@ audio_data = np.load(os.path.join(DATA_PATH, 'mel_spectrograms_normalized.npy'))
 audio_data = audio_data[:, np.newaxis, :, :]
 
 # Load Lyrics Embeddings (Text)
-# Shape after advanced preprocessing: (N, 384)
+# Shape after advanced preprocessing: (N, 768)
 text_data = np.load(os.path.join(DATA_PATH, 'lyrics_embeddings.npy'))
 
 # Load Labels (if available, for ARI)
@@ -90,7 +90,7 @@ print(f"Validation samples: {len(val_dataset)}")
 # ============================================================================
 
 class HybridVAE(nn.Module):
-    def __init__(self, latent_dim=128, text_dim=384):
+    def __init__(self, latent_dim=128, text_dim=768):
         super(HybridVAE, self).__init__()
         self.latent_dim = latent_dim
         
@@ -229,7 +229,7 @@ def loss_function(recon_audio, audio, recon_text, text, mu, logvar, alpha=1.0, b
     
     # Total loss with weighting
     # Alpha balances audio vs text importance. Text is much smaller dimension, likely needs boosting or good MSE balance.
-    # Dimensions: Audio (131k), Text (384). Ratio ~340.
+    # Dimensions: Audio (~262k), Text (768). Ratio ~341.
     # Adjusted weighting to 350 to align per-feature importance roughly 1:1.
     
     return recon_loss_audio + recon_loss_text * 350 + kld * beta, recon_loss_audio, recon_loss_text, kld

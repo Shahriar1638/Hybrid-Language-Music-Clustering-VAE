@@ -24,7 +24,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
 # Define paths
-OUTPUT_PATH = r"f:\BRACU\Semester 12 Final\CSE425\FInal_project\processed_data"
+OUTPUT_PATH = r"f:\BRACU\Semester 12 Final\CSE425\FInal_project\processed_data2"
 RESULTS_PATH = r"f:\BRACU\Semester 12 Final\CSE425\FInal_project\results"
 os.makedirs(RESULTS_PATH, exist_ok=True)
 

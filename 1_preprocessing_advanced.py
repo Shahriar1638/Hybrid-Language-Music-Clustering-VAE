@@ -12,7 +12,8 @@ import warnings
 from tqdm import tqdm
 import pickle
 from sklearn.preprocessing import StandardScaler
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.preprocessing import StandardScaler
+from sentence_transformers import SentenceTransformer
 from joblib import Parallel, delayed, cpu_count
 import multiprocessing
 
@@ -33,8 +34,8 @@ CONFIG = {
     'n_fft': 2048,
     'hop_length': 512,
     'fixed_time_steps': 1024,        # CHANGED: More manageable
-    'max_samples_per_class': 120,
-    'lyrics_max_features': 384,    # CHANGED: Sentence transformer output
+    'max_samples_per_class': 200,
+    'lyrics_max_features': 768,    # CHANGED: sentence-transformers/paraphrase-multilingual-mpnet-base-v2 output
 }
 
 # Define paths
@@ -342,17 +343,23 @@ print("\n" + "=" * 60)
 print("CREATING LYRICS EMBEDDINGS")
 print("=" * 60)
 
-def create_lyrics_embeddings(lyrics_list, max_features=100):
-    """Create TF-IDF embeddings for lyrics."""
-    vectorizer = TfidfVectorizer(max_features=max_features, stop_words='english')
+def create_lyrics_embeddings(lyrics_list, model_name='sentence-transformers/paraphrase-multilingual-mpnet-base-v2'):
+    """Create embeddings for lyrics using Sentence-Transformers."""
+    print(f"Loading Sentence Transformer model: {model_name}...")
+    model = SentenceTransformer(model_name)
+    
     # Handle empty lyrics (though should be filtered now)
-    lyrics_cleaned = [l if l and len(str(l)) > 0 else ' ' for l in lyrics_list]
-    embeddings = vectorizer.fit_transform(lyrics_cleaned).toarray()
-    return embeddings, vectorizer
+    # Ensure all inputs are strings
+    lyrics_cleaned = [str(l) if l and len(str(l)) > 0 else ' ' for l in lyrics_list]
+    
+    print("Encoding lyrics...")
+    # sentence-transformers handles batching automatically but we can specify if needed
+    embeddings = model.encode(lyrics_cleaned, show_progress_bar=True)
+    
+    return embeddings
 
-lyrics_embeddings, tfidf_vectorizer = create_lyrics_embeddings(
-    lyrics_list, 
-    max_features=CONFIG['lyrics_max_features']
+lyrics_embeddings = create_lyrics_embeddings(
+    lyrics_list
 )
 print(f"Lyrics embeddings shape: {lyrics_embeddings.shape}")
 
@@ -442,7 +449,7 @@ with open(os.path.join(OUTPUT_PATH, 'mel_scaler.pkl'), 'wb') as f: pickle.dump(m
 
 with open(os.path.join(OUTPUT_PATH, 'flat_scaler.pkl'), 'wb') as f: pickle.dump(flat_scaler, f)
 with open(os.path.join(OUTPUT_PATH, 'imputer.pkl'), 'wb') as f: pickle.dump(imputer, f)
-with open(os.path.join(OUTPUT_PATH, 'tfidf_vectorizer.pkl'), 'wb') as f: pickle.dump(tfidf_vectorizer, f)
+# Tfidf vectorizer is no longer used/saved
 with open(os.path.join(OUTPUT_PATH, 'config.pkl'), 'wb') as f: pickle.dump(CONFIG, f)
 
 print(f"\nFiles saved to: {OUTPUT_PATH}")
