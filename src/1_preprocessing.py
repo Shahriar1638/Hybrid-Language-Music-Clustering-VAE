@@ -34,7 +34,7 @@ BASE_PATH = r"f:\BRACU\Semester 12 Final\CSE425\FInal_project\Datasets"
 BANGLA_PATH = os.path.join(BASE_PATH, "Bangla_Datasets")
 ENGLISH_PATH = os.path.join(BASE_PATH, "English_Datasets")
 METADATA_PATH = os.path.join(BASE_PATH, "updated_metadata.csv")
-OUTPUT_PATH = r"f:\BRACU\Semester 12 Final\CSE425\FInal_project\processed_data"
+OUTPUT_PATH = r"f:\BRACU\Semester 12 Final\CSE425\FInal_project\processed_data1"
 
 # Create output directory if it doesn't exist
 os.makedirs(OUTPUT_PATH, exist_ok=True)

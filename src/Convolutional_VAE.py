@@ -17,14 +17,11 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
-# Suppress warnings
 warnings.filterwarnings('ignore')
 
-# Set random seeds
 np.random.seed(42)
 torch.manual_seed(42)
 
-# Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
@@ -32,26 +29,18 @@ print(f"Using device: {device}")
 # CELL 2: Load Data
 # ============================================================================
 
-# Define paths
 DATA_PATH = r"f:\BRACU\Semester 12 Final\CSE425\FInal_project\processed_data2"
-RESULTS_PATH = r"f:\BRACU\Semester 12 Final\CSE425\FInal_project\results_advanced_v2"
+RESULTS_PATH = r"f:\BRACU\Semester 12 Final\CSE425\FInal_project\results\Convolutional_VAE"
 
-# Create results directory if it doesn't exist
 os.makedirs(RESULTS_PATH, exist_ok=True)
 
 print("Loading data from:", DATA_PATH)
 
-# Load Mel Spectrograms (Audio)
-# Shape: (N, 256, 1024)
 audio_data = np.load(os.path.join(DATA_PATH, 'mel_spectrograms_normalized.npy'))
-# Add channel dimension for CNN: (N, 1, 256, 1024)
 audio_data = audio_data[:, np.newaxis, :, :]
 
-# Load Lyrics Embeddings (Text)
-# Shape after advanced preprocessing: (N, 768)
 text_data = np.load(os.path.join(DATA_PATH, 'lyrics_embeddings.npy'))
 
-# Load Labels (if available, for ARI)
 labels_path = os.path.join(DATA_PATH, 'labels.npy')
 if os.path.exists(labels_path):
     labels = np.load(labels_path, allow_pickle=True)
@@ -64,20 +53,14 @@ else:
 
 print(f"Audio data shape: {audio_data.shape}")
 print(f"Text data shape: {text_data.shape}")
-
-# Convert to PyTorch tensors
 audio_tensor = torch.FloatTensor(audio_data)
 text_tensor = torch.FloatTensor(text_data)
 
-# Create Dataset
 full_dataset = TensorDataset(audio_tensor, text_tensor)
 
-# Split into Train/Validation (85% Train, 15% Validation)
 train_size = int(0.85 * len(full_dataset))
 val_size = len(full_dataset) - train_size
 train_dataset, val_dataset = torch.utils.data.random_split(full_dataset, [train_size, val_size])
-
-# Create DataLoaders
 BATCH_SIZE = 32
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
@@ -94,34 +77,29 @@ class HybridVAE(nn.Module):
         super(HybridVAE, self).__init__()
         self.latent_dim = latent_dim
         
-        # --- Audio Encoder (CNN) ---
-        # Input: (1, 256, 1024)
         self.audio_encoder = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1),   # -> (32, 128, 512)
+            nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1),   
             nn.BatchNorm2d(32),
             nn.LeakyReLU(),
-            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),  # -> (64, 64, 256)
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1), 
             nn.BatchNorm2d(64),
             nn.LeakyReLU(),
-            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1), # -> (128, 32, 128)
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1), 
             nn.BatchNorm2d(128),
             nn.LeakyReLU(),
-            nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1),# -> (256, 16, 64)
+            nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1),
             nn.BatchNorm2d(256),
             nn.LeakyReLU(),
-            nn.Conv2d(256, 512, kernel_size=3, stride=2, padding=1),# -> (512, 8, 32)
+            nn.Conv2d(256, 512, kernel_size=3, stride=2, padding=1),
             nn.BatchNorm2d(512),
             nn.LeakyReLU(),
-            nn.Conv2d(512, 512, kernel_size=3, stride=2, padding=1),# -> (512, 4, 16)
+            nn.Conv2d(512, 512, kernel_size=3, stride=2, padding=1),
             nn.BatchNorm2d(512),
             nn.LeakyReLU(),
-            nn.Flatten() # -> 512 * 2 * 16 = 16384 (for 128 mels)
+            nn.Flatten() 
         )
-        # Audio feature projection
         self.audio_fc = nn.Linear(16384, 1024)
         
-        # --- Text Encoder (Dense) ---
-        # Input: (100)
         self.text_encoder = nn.Sequential(
             nn.Linear(text_dim, 256),
             nn.BatchNorm1d(256),
@@ -131,41 +109,36 @@ class HybridVAE(nn.Module):
             nn.LeakyReLU()
         )
         
-        # --- Fusion & Latent Space ---
-        # Concatenate Audio (1024) + Text (128) = 1152
         self.fc_fusion = nn.Linear(1024 + 128, 512)
         
         self.fc_mu = nn.Linear(512, latent_dim)
         self.fc_logvar = nn.Linear(512, latent_dim)
         
-        # --- Decoder Split ---
         self.decoder_input = nn.Linear(latent_dim, 512)
-        self.decoder_split = nn.Linear(512, 1024 + 128) # Split back to audio/text hidden dims
+        self.decoder_split = nn.Linear(512, 1024 + 128) 
         
-        # --- Audio Decoder (Transposed CNN) ---
         self.audio_decoder_fc = nn.Linear(1024, 16384)
         
         self.audio_decoder = nn.Sequential(
             nn.Unflatten(1, (512, 2, 16)),
-            nn.ConvTranspose2d(512, 512, kernel_size=3, stride=2, padding=1, output_padding=1), # -> (512, 8, 32)
+            nn.ConvTranspose2d(512, 512, kernel_size=3, stride=2, padding=1, output_padding=1), 
             nn.BatchNorm2d(512),
             nn.LeakyReLU(),
-            nn.ConvTranspose2d(512, 256, kernel_size=3, stride=2, padding=1, output_padding=1), # -> (256, 16, 64)
+            nn.ConvTranspose2d(512, 256, kernel_size=3, stride=2, padding=1, output_padding=1), 
             nn.BatchNorm2d(256),
             nn.LeakyReLU(),
-            nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, output_padding=1), # -> (128, 32, 128)
+            nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, output_padding=1), 
             nn.BatchNorm2d(128),
             nn.LeakyReLU(),
-            nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1),  # -> (64, 64, 256)
+            nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1), 
             nn.BatchNorm2d(64),
             nn.LeakyReLU(),
-            nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),   # -> (32, 128, 512)
+            nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1), 
             nn.BatchNorm2d(32),
             nn.LeakyReLU(),
-            nn.ConvTranspose2d(32, 1, kernel_size=3, stride=2, padding=1, output_padding=1),    # -> (1, 256, 1024)
+            nn.ConvTranspose2d(32, 1, kernel_size=3, stride=2, padding=1, output_padding=1),    
         )
 
-        # --- Text Decoder ---
         self.text_decoder = nn.Sequential(
             nn.Linear(128, 256),
             nn.BatchNorm1d(256),
@@ -195,15 +168,12 @@ class HybridVAE(nn.Module):
         h = torch.relu(self.decoder_input(z))
         splits = torch.relu(self.decoder_split(h))
         
-        # Split back into audio (1024) and text (128)
         a_hidden = splits[:, :1024]
         t_hidden = splits[:, 1024:]
         
-        # Decode audio
         a_unfl = torch.relu(self.audio_decoder_fc(a_hidden))
         recon_audio = self.audio_decoder(a_unfl)
         
-        # Decode text
         recon_text = self.text_decoder(t_hidden)
         
         return recon_audio, recon_text
@@ -214,23 +184,12 @@ class HybridVAE(nn.Module):
         recon_audio, recon_text = self.decode(z)
         return recon_audio, recon_text, mu, logvar
 
-# Loss function
 def loss_function(recon_audio, audio, recon_text, text, mu, logvar, alpha=1.0, beta=1.0):
-    # Audio Reconstruction Loss (MSE)
-    # Flatten for MSE
     recon_loss_audio = nn.functional.mse_loss(recon_audio, audio, reduction='sum')
     
-    # Text Reconstruction Loss (MSE)
     recon_loss_text = nn.functional.mse_loss(recon_text, text, reduction='sum')
     
-    # KL Divergence
-    # -0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
     kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    
-    # Total loss with weighting
-    # Alpha balances audio vs text importance. Text is much smaller dimension, likely needs boosting or good MSE balance.
-    # Dimensions: Audio (~262k), Text (768). Ratio ~341.
-    # Adjusted weighting to 350 to align per-feature importance roughly 1:1.
     
     return recon_loss_audio + recon_loss_text * 350 + kld * beta, recon_loss_audio, recon_loss_text, kld
 
@@ -240,13 +199,11 @@ print("Hybrid VAE model defined.")
 # CELL 4: Train Model
 # ============================================================================
 
-# Hyperparameters
 LATENT_DIM = 128
-EPOCHS = 500 # Increased epochs since we have early stopping
+EPOCHS = 500 
 LEARNING_RATE = 1e-4
 PATIENCE = 15
 
-# Initialize model
 model = HybridVAE(latent_dim=LATENT_DIM).to(device)
 optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
@@ -285,7 +242,6 @@ for epoch in range(EPOCHS):
     avg_train_loss = total_epoch_loss / len(train_loader.dataset)
     train_losses.append(avg_train_loss)
     
-    # --- Validation Loop ---
     model.eval()
     total_val_loss = 0
     with torch.no_grad():
@@ -303,12 +259,9 @@ for epoch in range(EPOCHS):
           f'(Audio: {total_audio_loss/len(train_loader.dataset):.2f}, '
           f'Text: {total_text_loss/len(train_loader.dataset):.2f})')
           
-    # Early Stopping Check (Monitor Validation Loss)
     if avg_val_loss < best_loss:
         best_loss = avg_val_loss
         patience_counter = 0
-        # Optional: Save best model state
-        # torch.save(model.state_dict(), os.path.join(RESULTS_PATH, 'best_model.pth'))
     else:
         patience_counter += 1
         print(f"  Patience {patience_counter}/{PATIENCE} (Val Loss did not improve)")
@@ -335,10 +288,6 @@ model.eval()
 latent_vectors = []
 
 with torch.no_grad():
-    # Process entire dataset in batches to avoid OOM even during inference if large
-    # Using existing dataloader but we strictly want order preserved if we interpret against labels?
-    # Actually dataloader is shuffled. We should create a non-shuffled loader for extraction matching indices.
-    
     eval_dataset = TensorDataset(audio_tensor, text_tensor)
     eval_loader = DataLoader(eval_dataset, batch_size=BATCH_SIZE, shuffle=False)
     
@@ -351,7 +300,6 @@ with torch.no_grad():
 latent_matrix = np.vstack(latent_vectors)
 print(f"Latent matrix shape: {latent_matrix.shape}")
 
-# Save latent features
 np.save(os.path.join(RESULTS_PATH, 'hybrid_latent_features.npy'), latent_matrix)
 
 # ============================================================================
@@ -360,10 +308,8 @@ np.save(os.path.join(RESULTS_PATH, 'hybrid_latent_features.npy'), latent_matrix)
 
 print("\n--- Finding Optimal Parameters for Each Algorithm ---")
 
-# User requested range(2, 15)
 k_range = range(2, 15) 
 
-# --- 1. K-Means Optimization ---
 print("\n[1] Optimizing K-Means (K=2..14)...")
 best_k_kmeans = 2
 best_sil_kmeans = -1
@@ -381,7 +327,6 @@ for k in k_range:
 print(f"Optimal K for K-Means: {best_k_kmeans}")
 
 
-# --- 2. Agglomerative Clustering Optimization ---
 print("\n[2] Optimizing Agglomerative Clustering (K=2..14)...")
 best_k_agg = 2
 best_sil_agg = -1
@@ -399,19 +344,15 @@ for k in k_range:
 print(f"Optimal K for Agglomerative: {best_k_agg}")
 
 
-# --- 3. DBSCAN Optimization ---
 print("\n[3] Optimizing DBSCAN (Eps search)...")
-best_eps = 5.0 # Start with a reasonable default for high-dim
+best_eps = 5.0 
 best_sil_db = -1
-# In 128-dim space, distances are much larger (expected ~10-15). 
-# Range 0.5-5.0 is too small. Increasing to 3.0-20.0
 eps_range = np.arange(3.0, 20.0, 1.0)
 
 for eps in eps_range:
     db = DBSCAN(eps=eps, min_samples=5)
     labels = db.fit_predict(latent_matrix)
     
-    # Check valid clusters (ignoring noise -1)
     unique_labels = set(labels)
     if -1 in unique_labels:
         unique_labels.remove(-1)
@@ -446,21 +387,17 @@ results_data = []
 for name, algo in clustering_algos.items():
     print(f"\nRunning {name}...")
     
-    # Fit and Predict
     labels_pred = algo.fit_predict(latent_matrix)
     
-    # Store labels in the algorithm object for visualization later
     if hasattr(algo, 'labels_'):
          algo.labels_ = labels_pred 
     
-    # Metrics
     n_clusters_found = len(set(labels_pred)) - (1 if -1 in labels_pred else 0)
     print(f"Number of clusters found: {n_clusters_found}")
     
     if n_clusters_found > 1:
         sil = silhouette_score(latent_matrix, labels_pred)
         db = davies_bouldin_score(latent_matrix, labels_pred)
-        # ARI requires ground truth labels
         if labels_encoded is not None:
             ari = adjusted_rand_score(labels_encoded, labels_pred)
         else:
@@ -492,18 +429,34 @@ for name, algo in clustering_algos.items():
 # CELL 7: Visualize Results
 # ============================================================================
 
-# Convert results to DataFrame
+  
 df_results = pd.DataFrame(results_data)
+df_results['Architecture'] = 'Convolutional VAE'
+
 print("\nFinal Results:")
 print(df_results)
 
-# Save results to CSV
-df_results.to_csv(os.path.join(RESULTS_PATH, 'clustering_metrics.csv'), index=False)
 
-# t-SNE Visualization
-# Ensure we have labels from our runs. The keys in clustering_algos now incorporate k.
-# We need to find the specific keys we created dynamically or just iterate.
-# We know the specific naming convention we used.
+COMMON_RESULTS_PATH = r"f:\BRACU\Semester 12 Final\CSE425\FInal_project\results"
+common_csv_path = os.path.join(COMMON_RESULTS_PATH, 'clustering_metrics.csv')
+
+
+if os.path.exists(common_csv_path):
+    try:
+        df_common = pd.read_csv(common_csv_path)
+        df_common = df_common[df_common['Architecture'] != 'Convolutional VAE']
+        df_common = pd.concat([df_common, df_results], ignore_index=True)
+    except Exception as e:
+        print(f"Error reading existing CSV: {e}. Creating new one.")
+        df_common = df_results
+else:
+    df_common = df_results
+
+df_common.to_csv(common_csv_path, index=False)
+print(f"Metrics updated in {common_csv_path}")
+
+
+df_results.to_csv(os.path.join(RESULTS_PATH, 'clustering_metrics.csv'), index=False)
 
 kmeans_main_key = f'K-Means-Main (k={best_k_kmeans})'
 kmeans_lang_key = 'K-Means-Language (k=2)'
@@ -517,20 +470,15 @@ latent_tsne = tsne.fit_transform(latent_matrix)
 
 plt.figure(figsize=(18, 5))
 
-# Plot 1: Main K-Means Clusters
 plt.subplot(1, 3, 1)
 plt.scatter(latent_tsne[:, 0], latent_tsne[:, 1], c=kmeans_main_labels, cmap='viridis', alpha=0.6, s=10)
 plt.title(f'Latent Space (Main K-Means, k={best_k_kmeans})')
 plt.colorbar(label='Cluster ID')
-
-# Plot 2: Language Clusters
 plt.subplot(1, 3, 2)
-# Using a contrasting colormap for binary/small class count
 plt.scatter(latent_tsne[:, 0], latent_tsne[:, 1], c=kmeans_lang_labels, cmap='coolwarm', alpha=0.6, s=10)
 plt.title('Latent Space (Language Clusters, k=2)')
 plt.colorbar(label='Cluster ID')
 
-# Plot 3: Ground Truth Genres (if available)
 plt.subplot(1, 3, 3)
 if labels_encoded is not None:
     plt.scatter(latent_tsne[:, 0], latent_tsne[:, 1], c=labels_encoded, cmap='jet', alpha=0.6, s=10)

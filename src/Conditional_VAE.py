@@ -28,7 +28,7 @@ torch.manual_seed(42)
 
 CONFIG = {
     'data_path': r"f:\BRACU\Semester 12 Final\CSE425\FInal_project\processed_data2",
-    'results_path': r"f:\BRACU\Semester 12 Final\CSE425\FInal_project\results_cvae",
+    'results_path': r"f:\BRACU\Semester 12 Final\CSE425\FInal_project\results\Conditional_VAE",
     'batch_size': 32,
     'epochs': 600,  # Adjustable
     'learning_rate': 1e-4,
@@ -460,7 +460,31 @@ def main():
     
     # Save Results
     df_res = pd.DataFrame(results)
-    df_res.to_csv(os.path.join(CONFIG['results_path'], 'comparison_metrics.csv'), index=False)
+    df_res['Architecture'] = 'Conditional VAE'
+    
+    # Common Results Path
+    COMMON_RESULTS_PATH = r"f:\BRACU\Semester 12 Final\CSE425\FInal_project\results"
+    common_csv_path = os.path.join(COMMON_RESULTS_PATH, 'clustering_metrics.csv')
+
+    # Append to common metrics file
+    if os.path.exists(common_csv_path):
+        try:
+            df_common = pd.read_csv(common_csv_path)
+            # Remove previous results for this architecture
+            df_common = df_common[df_common['Architecture'] != 'Conditional VAE']
+            # Append new results
+            df_common = pd.concat([df_common, df_res], ignore_index=True)
+        except Exception as e:
+            print(f"Error reading existing CSV: {e}. Creating new one.")
+            df_common = df_res
+    else:
+        df_common = df_res
+
+    df_common.to_csv(common_csv_path, index=False)
+    print(f"Metrics updated in {common_csv_path}")
+
+    # Also save strictly to the cvae folder
+    df_res.to_csv(os.path.join(CONFIG['results_path'], 'clustering_metrics.csv'), index=False)
     print("\nFinal Comparison:")
     print(df_res)
     
