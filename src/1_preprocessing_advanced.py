@@ -1,7 +1,5 @@
 # ============================================================================
-# ADVANCED PREPROCESSING FOR CONVOLUTIONAL VAE (OPTIMIZED)
-# Generates high-res mel spectrograms (2D) and lyrics embeddings
-# features: Parallel Processing (CPU 100%), High Res, Strict Filtering
+# ADVANCED PREPROCESSING FOR CONVOLUTIONAL VAE AND CONDITIONAL VAE
 # ============================================================================
 
 import os
@@ -30,22 +28,22 @@ print("=" * 60)
 CONFIG = {
     'sample_rate': 22050,
     'duration': 30,
-    'n_mels': 128,                  # CHANGED: Standard height
+    'n_mels': 128,                  
     'n_fft': 2048,
     'hop_length': 512,
-    'fixed_time_steps': 1024,        # CHANGED: More manageable
+    'fixed_time_steps': 1024,        
     'max_samples_per_class': 200,
-    'lyrics_max_features': 768,    # CHANGED: sentence-transformers/paraphrase-multilingual-mpnet-base-v2 output
+    'lyrics_max_features': 768,    
 }
 
-# Define paths
+
 BASE_PATH = r"f:\BRACU\Semester 12 Final\CSE425\FInal_project\Datasets"
 BANGLA_PATH = os.path.join(BASE_PATH, "Bangla_Datasets")
 ENGLISH_PATH = os.path.join(BASE_PATH, "English_Datasets")
 METADATA_PATH = os.path.join(BASE_PATH, "updated_metadata.csv")
 OUTPUT_PATH = r"f:\BRACU\Semester 12 Final\CSE425\FInal_project\processed_data2"
 
-# Create output directory if it doesn't exist
+
 os.makedirs(OUTPUT_PATH, exist_ok=True)
 
 print(f"\nConfiguration loaded!")
@@ -68,7 +66,6 @@ if not os.path.exists(METADATA_PATH):
 metadata_df = pd.read_csv(METADATA_PATH)
 print(f"Metadata shape: {metadata_df.shape}")
 
-# Create lookup dictionaries
 genre_lookup = dict(zip(metadata_df['ID'].astype(str), metadata_df['genre']))
 lyrics_lookup = dict(zip(metadata_df['ID'].astype(str), metadata_df['lyrics'].fillna('')))
 
@@ -88,7 +85,6 @@ def load_audio_file(file_path):
             duration=CONFIG['duration']
         )
         
-        # Pad if audio is shorter than duration
         expected_samples = CONFIG['sample_rate'] * CONFIG['duration']
         if len(audio) < expected_samples:
             audio = np.pad(audio, (0, expected_samples - len(audio)), mode='constant')
@@ -109,12 +105,9 @@ def extract_mel_spectrogram(audio, sr):
     )
     mel_db = librosa.power_to_db(mel, ref=np.max)
     
-    # Resize to fixed time steps (width)
     if mel_db.shape[1] > CONFIG['fixed_time_steps']:
-        # Center crop or take first N steps? Taking first N for consistency.
         mel_db = mel_db[:, :CONFIG['fixed_time_steps']]
     else:
-        # Pad with minimum value (silence)
         pad_width = CONFIG['fixed_time_steps'] - mel_db.shape[1]
         mel_db = np.pad(mel_db, ((0, 0), (0, pad_width)), mode='constant', constant_values=mel_db.min())
     
@@ -129,28 +122,25 @@ def extract_flattened_features(audio, sr):
     Extract flattened statistical features (for compatibility with MLP-based models).
     Using reduced statistics to keep vector size reasonable alongside High Res images.
     """
-    # Extract mel spectrogram
     mel = librosa.feature.melspectrogram(
-        y=audio, sr=sr, n_mels=128, # Keep 128 for stat features to match old scaling roughly
+        y=audio, sr=sr, n_mels=128, 
         n_fft=CONFIG['n_fft'], hop_length=CONFIG['hop_length']
     )
     mel_db = librosa.power_to_db(mel, ref=np.max)
     
 
     
-    # Extract spectral features
     spectral_centroid = librosa.feature.spectral_centroid(y=audio, sr=sr, hop_length=CONFIG['hop_length'])
     spectral_bandwidth = librosa.feature.spectral_bandwidth(y=audio, sr=sr, hop_length=CONFIG['hop_length'])
     spectral_rolloff = librosa.feature.spectral_rolloff(y=audio, sr=sr, hop_length=CONFIG['hop_length'])
     zcr = librosa.feature.zero_crossing_rate(audio, hop_length=CONFIG['hop_length'])
     rms = librosa.feature.rms(y=audio, hop_length=CONFIG['hop_length'])
     
-    # Chroma
     chroma = librosa.feature.chroma_stft(
         y=audio, sr=sr, n_fft=CONFIG['n_fft'], hop_length=CONFIG['hop_length']
     )
     
-    # Aggregate features
+    
     features = []
     features.extend(np.mean(mel_db, axis=1))
     features.extend(np.std(mel_db, axis=1))
@@ -176,7 +166,6 @@ def process_single_file(file_info):
         return {'status': 'failed', 'path': file_info['path'], 'error': 'Load failed'}
     
     try:
-        # Extract features
         mel_spec = extract_mel_spectrogram(audio, sr)
         flat_feat = extract_flattened_features(audio, sr)
         
@@ -228,7 +217,6 @@ def collect_audio_files():
             for audio_file in files_in_genre:
                 file_id = os.path.splitext(audio_file)[0]
                 
-                # Check 1: Existence in metadata
                 if file_id not in genre_lookup:
                     skipped_files += 1
                     skipped_reasons['not_in_metadata'] += 1
@@ -236,7 +224,6 @@ def collect_audio_files():
                 
                 current_genre = genre_lookup[file_id]
                 
-                # Check 1.5: Exclude Jazz
                 if str(current_genre).strip().lower() == 'jazz':
                     skipped_files += 1
                     skipped_reasons['jazz_excluded'] += 1
@@ -244,21 +231,19 @@ def collect_audio_files():
                 
                 lyrics = lyrics_lookup.get(file_id, '')
                 
-                # Check 2: Strict Lyrics Validation
                 if not isinstance(lyrics, str):
                     skipped_files += 1
                     skipped_reasons['empty_lyrics'] += 1
                     continue
                 
                 clean_lyrics = lyrics.strip()
-                # Remove common placeholders
                 if clean_lyrics.lower() in ['nan', 'none', 'null', 'instrumental', '', ' ']:
                     skipped_files += 1
                     skipped_reasons['empty_lyrics'] += 1
                     continue
                     
-                # Check 3: Length
-                if len(clean_lyrics) < 15: # Increased threshold strictly
+                
+                if len(clean_lyrics) < 15: 
                     skipped_files += 1
                     skipped_reasons['short_lyrics'] += 1
                     continue
@@ -298,13 +283,10 @@ print("\n" + "=" * 60)
 print(f"EXTRACTING FEATURES (Using {cpu_count()} CPU Cores)")
 print("=" * 60)
 
-# Run parallel processing
-# n_jobs=-1 uses all available cores
 results = Parallel(n_jobs=-1, verbose=5)(
     delayed(process_single_file)(f) for f in audio_files
 )
 
-# Aggregate results
 mel_spectrograms = []
 flattened_features = []
 labels = []
@@ -327,7 +309,6 @@ for res in results:
     else:
         failed_count += 1
 
-# Convert to numpy arrays
 mel_spectrograms = np.array(mel_spectrograms)
 flattened_features = np.array(flattened_features)
 labels = np.array(labels)
@@ -348,12 +329,9 @@ def create_lyrics_embeddings(lyrics_list, model_name='sentence-transformers/para
     print(f"Loading Sentence Transformer model: {model_name}...")
     model = SentenceTransformer(model_name)
     
-    # Handle empty lyrics (though should be filtered now)
-    # Ensure all inputs are strings
     lyrics_cleaned = [str(l) if l and len(str(l)) > 0 else ' ' for l in lyrics_list]
     
     print("Encoding lyrics...")
-    # sentence-transformers handles batching automatically but we can specify if needed
     embeddings = model.encode(lyrics_cleaned, show_progress_bar=True)
     
     return embeddings
@@ -363,7 +341,6 @@ lyrics_embeddings = create_lyrics_embeddings(
 )
 print(f"Lyrics embeddings shape: {lyrics_embeddings.shape}")
 
-# Ensure we have consistency
 assert len(mel_spectrograms) == len(lyrics_embeddings), "Mismatch between audio and lyrics samples!"
 
 # ============================================================================
@@ -396,8 +373,6 @@ print("\n" + "=" * 60)
 print("NORMALIZING FEATURES")
 print("=" * 60)
 
-# Normalize mel spectrograms (standard scaler on flattened, then reshape)
-# Using memory-efficient approach if possible, but for 2000 samples, fit_transform is fine
 mel_scaler = StandardScaler()
 N, H, W = mel_spectrograms.shape
 mel_flat = mel_spectrograms.reshape(N, -1)
@@ -407,7 +382,6 @@ mel_normalized = mel_normalized_flat.reshape(N, H, W)
 mel_normalized = mel_normalized_flat.reshape(N, H, W)
 
 
-# Normalize flattened features
 from sklearn.impute import SimpleImputer
 features_clean = np.where(np.isinf(flattened_features), np.nan, flattened_features)
 imputer = SimpleImputer(strategy='mean')
@@ -426,30 +400,24 @@ print("\n" + "=" * 60)
 print("SAVING PREPROCESSED DATA")
 print("=" * 60)
 
-# Create DataFrame with metadata
 metadata_df_out = pd.DataFrame(metadata_list)
 metadata_df_out['label'] = labels
 
-# Save 2D features for CNN
 np.save(os.path.join(OUTPUT_PATH, 'mel_spectrograms_raw.npy'), mel_spectrograms)
 np.save(os.path.join(OUTPUT_PATH, 'mel_spectrograms_normalized.npy'), mel_normalized)
 
 
-# Save flattened features
 np.save(os.path.join(OUTPUT_PATH, 'features_raw.npy'), flattened_features)
 np.save(os.path.join(OUTPUT_PATH, 'features_normalized.npy'), features_normalized)
 
-# Save lyrics embeddings & labels
 np.save(os.path.join(OUTPUT_PATH, 'lyrics_embeddings.npy'), lyrics_embeddings)
 np.save(os.path.join(OUTPUT_PATH, 'labels.npy'), labels)
 metadata_df_out.to_csv(os.path.join(OUTPUT_PATH, 'metadata.csv'), index=False)
 
-# Save scalers
 with open(os.path.join(OUTPUT_PATH, 'mel_scaler.pkl'), 'wb') as f: pickle.dump(mel_scaler, f)
 
 with open(os.path.join(OUTPUT_PATH, 'flat_scaler.pkl'), 'wb') as f: pickle.dump(flat_scaler, f)
 with open(os.path.join(OUTPUT_PATH, 'imputer.pkl'), 'wb') as f: pickle.dump(imputer, f)
-# Tfidf vectorizer is no longer used/saved
 with open(os.path.join(OUTPUT_PATH, 'config.pkl'), 'wb') as f: pickle.dump(CONFIG, f)
 
 print(f"\nFiles saved to: {OUTPUT_PATH}")
